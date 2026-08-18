@@ -9,7 +9,12 @@ from typing import List, Dict, Optional
 class MessageSummarizer:
     """Handle message summarization using BART model."""
     
-    def __init__(self, max_daily_messages: int = 500, priority_username: str = "michael_schredl"):
+    def __init__(
+        self,
+        max_daily_messages: int = 500,
+        priority_username: str = "michael_schredl",
+        priority_weight: int = 2,
+    ):
         """Initialize summarizer with BART model."""
         print("Loading BART summarization model...")
         self.summarizer = pipeline(
@@ -20,6 +25,7 @@ class MessageSummarizer:
         
         self.max_daily_messages = max_daily_messages
         self.priority_username = priority_username.lower()
+        self.priority_weight = max(1, priority_weight)
 
     def select_messages(self, messages: List[Dict]) -> List[Dict]:
         """
@@ -53,6 +59,25 @@ class MessageSummarizer:
         selected.sort(key=lambda item: item["date"])
 
         return selected[-self.max_daily_messages:]
+
+    def build_weighted_transcript(self, messages: List[Dict]) -> str:
+        """Build model input with moderate emphasis on priority messages."""
+        transcript_lines = []
+
+        for message in messages:
+            text = message["message"].strip()
+
+            if not text or text.startswith("/"):
+                continue
+
+            weight = (
+                self.priority_weight
+                if message["username"] == self.priority_username
+                else 1
+            )
+            transcript_lines.extend([text] * weight)
+
+        return "\n".join(transcript_lines)
 
     def split_into_token_chunks(self, text: str, max_tokens: int = 850) -> List[str]:
         """Split text into chunks that BART can process safely."""
@@ -137,14 +162,7 @@ class MessageSummarizer:
         """Create a compact multi-paragraph daily summary."""
         selected = self.select_messages(messages)
 
-        # Don't add usernames to BART input.
-        # Priority affects selection but doesn't single out priority user.
-        transcript = "\n".join(
-            msg["message"].strip()
-            for msg in selected
-            if msg["message"].strip()
-            and not msg["message"].startswith("/")
-        )
+        transcript = self.build_weighted_transcript(selected)
 
         if not transcript.strip():
             return None

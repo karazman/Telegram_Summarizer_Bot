@@ -28,8 +28,31 @@ MAX_DAILY_MESSAGES = int(os.environ.get("MAX_DAILY_MESSAGES", "500"))
 
 # Initialize services
 blob_storage = BlobMessageStorage(BLOB_CONNECTION_STRING)
-telegram_handler = TelegramHandler(BOT_TOKEN, blob_storage, TARGET_CHAT, TIMEZONE)
 summarizer = MessageSummarizer(MAX_DAILY_MESSAGES, PRIORITY_USERNAME)
+
+
+def create_daily_summary(chat_id: int) -> str | None:
+    """Create a summary from the stored messages of the last 24 hours."""
+    print("Loading messages from last 24 hours...")
+    messages = blob_storage.load_messages_last_24_hours(chat_id, TIMEZONE)
+
+    if not messages:
+        print("No messages in the last 24 hours.")
+        return None
+
+    print(f"Found {len(messages)} messages to summarize.")
+    print("Generating summary...")
+    return summarizer.summarize_messages(messages)
+
+
+telegram_handler = TelegramHandler(
+    BOT_TOKEN,
+    blob_storage,
+    TARGET_CHAT,
+    TARGET_CHAT_ID,
+    TIMEZONE,
+    create_daily_summary,
+)
 
 app = func.FunctionApp()
 
@@ -89,19 +112,7 @@ def daily_summary_timer(mytimer: func.TimerRequest) -> None:
         print("Timer is past due!")
     
     try:
-        # Load messages from last 24 hours
-        print("Loading messages from last 24 hours...")
-        messages = blob_storage.load_messages_last_24_hours(TARGET_CHAT_ID, TIMEZONE)
-        
-        if not messages:
-            print("No messages in the last 24 hours.")
-            return
-        
-        print(f"Found {len(messages)} messages to summarize.")
-        
-        # Generate summary
-        print("Generating summary...")
-        summary = summarizer.summarize_messages(messages)
+        summary = create_daily_summary(TARGET_CHAT_ID)
         
         if not summary:
             print("No usable messages to summarize.")
@@ -151,17 +162,7 @@ def trigger_summary_manual(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
-        # Generate and send summary
-        messages = blob_storage.load_messages_last_24_hours(TARGET_CHAT_ID, TIMEZONE)
-        
-        if not messages:
-            return func.HttpResponse(
-                json.dumps({"ok": False, "error": "No messages found"}),
-                status_code=200,
-                mimetype="application/json"
-            )
-        
-        summary = summarizer.summarize_messages(messages)
+        summary = create_daily_summary(TARGET_CHAT_ID)
         
         if not summary:
             return func.HttpResponse(

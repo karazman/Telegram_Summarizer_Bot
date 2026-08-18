@@ -2,11 +2,9 @@
 Telegram webhook handler and message processing.
 """
 
-import os
-import json
 import datetime
 from zoneinfo import ZoneInfo
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 import telebot
 from blob_storage import BlobMessageStorage
 
@@ -19,16 +17,23 @@ class TelegramHandler:
         bot_token: str,
         blob_storage: BlobMessageStorage,
         target_chat: str = "@jkbofewugfh98ewgfvbwoeitfhow",
-        timezone: ZoneInfo = ZoneInfo("Europe/Vienna")
+        target_chat_id: int = 0,
+        timezone: ZoneInfo = ZoneInfo("Europe/Vienna"),
+        create_summary: Optional[Callable[[int], Optional[str]]] = None,
     ):
         """Initialize Telegram handler."""
         self.bot = telebot.TeleBot(bot_token)
         self.blob_storage = blob_storage
         self.target_chat = target_chat
+        self.target_chat_id = target_chat_id
         self.target_username = target_chat.lstrip("@").lower()
         self.timezone = timezone
-        
-        # Register message handler
+        self.create_summary = create_summary
+
+        @self.bot.message_handler(commands=["dailysummary"])
+        def daily_summary_command(message):
+            self._handle_daily_summary(message)
+
         @self.bot.message_handler(
             func=lambda message: True,
             content_types=["text"]
@@ -36,14 +41,46 @@ class TelegramHandler:
         def log_message(message):
             self._handle_message(message)
 
-    def _handle_message(self, message) -> None:
-        """Process incoming message from Telegram."""
-        # Only process messages from the configured group
+    def _is_target_group(self, message) -> bool:
+        """Return whether a message belongs to the configured group."""
         if message.chat.type not in ("group", "supergroup"):
-            return
+            return False
+
+        if self.target_chat_id:
+            return message.chat.id == self.target_chat_id
 
         chat_username = (message.chat.username or "").lower()
-        if chat_username != self.target_username:
+        return chat_username == self.target_username
+
+    def _handle_daily_summary(self, message) -> None:
+        """Generate and send the last 24 hours summary on demand."""
+        if not self._is_target_group(message):
+            return
+
+        try:
+            if self.create_summary is None:
+                raise RuntimeError("Summary service is not configured")
+
+            summary = self.create_summary(message.chat.id)
+
+            if not summary:
+                self.send_message(
+                    message.chat.id,
+                    "Keine Nachrichten in den letzten 24 Stunden gefunden.",
+                )
+                return
+
+            self.send_summary(summary, message.chat.id)
+        except Exception as error:
+            print(f"Error handling /dailysummary: {error}")
+            self.send_message(
+                message.chat.id,
+                "Die Zusammenfassung konnte nicht erstellt werden.",
+            )
+
+    def _handle_message(self, message) -> None:
+        """Process incoming message from Telegram."""
+        if not self._is_target_group(message):
             return
 
         # Don't log bot commands
@@ -80,7 +117,7 @@ class TelegramHandler:
         except Exception as e:
             print(f"Error processing Telegram update: {e}")
 
-    def send_message(self, chat: str, text: str) -> None:
+    def send_message(self, chat: int | str, text: str) -> None:
         """Send a message to a Telegram chat."""
         try:
             self.bot.send_message(chat, text)
@@ -88,7 +125,7 @@ class TelegramHandler:
         except Exception as e:
             print(f"Error sending message: {e}")
 
-    def send_summary(self, summary: str) -> None:
+    def send_summary(self, summary: str, chat: int | str | None = None) -> None:
         """Send daily summary to target group."""
         if not summary:
             return
@@ -98,4 +135,4 @@ class TelegramHandler:
             f"{summary}"
         )
 
-        self.send_message(self.target_chat, text)
+        self.send_message(chat or self.target_chat_id or self.target_chat, text)
