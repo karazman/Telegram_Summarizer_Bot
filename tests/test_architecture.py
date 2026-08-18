@@ -24,12 +24,12 @@ class TransformersCompatibilityTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_function_timeout_is_fifteen_minutes(self):
+    def test_function_timeout_is_thirty_minutes(self):
         host_config = json.loads(
             (Path(__file__).parents[1] / "host.json").read_text(encoding="utf-8")
         )
 
-        self.assertEqual(host_config["functionTimeout"], "00:15:00")
+        self.assertEqual(host_config["functionTimeout"], "00:30:00")
 
 
 class SummarizerTests(unittest.TestCase):
