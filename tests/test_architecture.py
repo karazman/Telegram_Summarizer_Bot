@@ -2,12 +2,15 @@ import datetime
 import json
 import unittest
 from importlib.metadata import version
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import azure.functions as func
 
 import function_app
+from summarizer import MessageSummarizer
 from telegram_handler import TelegramHandler
 
 
@@ -18,6 +21,61 @@ class TransformersCompatibilityTests(unittest.TestCase):
         self.assertEqual(version("transformers"), "4.57.2")
         normalized_task, _, _ = check_task("summarization")
         self.assertEqual(normalized_task, "summarization")
+
+
+class ConfigurationTests(unittest.TestCase):
+    def test_function_timeout_is_fifteen_minutes(self):
+        host_config = json.loads(
+            (Path(__file__).parents[1] / "host.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(host_config["functionTimeout"], "00:15:00")
+
+
+class SummarizerTests(unittest.TestCase):
+    def test_longer_generation_settings_and_progress_logging(self):
+        summarizer = MessageSummarizer()
+        messages = [
+            {
+                "username": "user",
+                "message": "A detailed conversation happened today.",
+                "date": "2026-08-18T12:00:00+02:00",
+            }
+        ]
+
+        with patch.object(
+            summarizer,
+            "split_into_token_chunks",
+            side_effect=[["chunk one", "chunk two"], ["combined summary"]],
+        ):
+            with patch.object(
+                summarizer,
+                "summarize_chunk",
+                side_effect=[
+                    "First topic was discussed.",
+                    "Second topic received attention.",
+                    "The chat covered both topics in detail.",
+                ],
+            ) as summarize_chunk:
+                with self.assertLogs(level="INFO") as logs:
+                    summarizer.summarize_messages(messages)
+
+        self.assertEqual(
+            [call.kwargs for call in summarize_chunk.call_args_list],
+            [
+                {"max_length": 180, "min_length": 50},
+                {"max_length": 180, "min_length": 50},
+                {"max_length": 360, "min_length": 140},
+            ],
+        )
+        log_output = "\n".join(logs.output)
+        self.assertIn("Summarizing 1 messages", log_output)
+        self.assertIn("Created 2 token chunks", log_output)
+        self.assertIn("Summarizing chunk 1/2", log_output)
+        self.assertIn("Summarizing chunk 2/2", log_output)
+        self.assertIn("First summarization pass finished", log_output)
+        self.assertIn("Starting final synthesis", log_output)
+        self.assertIn("Summary finished", log_output)
 
 
 class FakeRequest:
@@ -125,6 +183,26 @@ class TelegramHandlerTests(unittest.TestCase):
                 ("send", -1003957784086),
             ],
         )
+
+    def test_summary_title_uses_current_vienna_date(self):
+        class FixedDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                instant = cls(2026, 8, 17, 22, 30, tzinfo=datetime.timezone.utc)
+                return instant.astimezone(tz)
+
+        self.handler.timezone = ZoneInfo("Europe/Vienna")
+        self.handler.send_message = Mock()
+
+        with patch("telegram_handler.datetime.datetime", FixedDateTime):
+            TelegramHandler.send_summary(
+                self.handler,
+                "First paragraph.",
+                self.handler.target_chat_id,
+            )
+
+        sent_text = self.handler.send_message.call_args.args[1]
+        self.assertTrue(sent_text.startswith("📊 Summary of 18.08.2026\n\n"))
 
 
 class TimerTests(unittest.TestCase):

@@ -147,11 +147,10 @@ class MessageSummarizer:
         if current.strip():
             sentences.append(current.strip())
 
-        if len(sentences) <= 2:
+        if len(sentences) <= 3:
             return "\n\n".join(sentences)
 
-        # Aim for roughly 3 short paragraphs.
-        paragraph_count = min(3, len(sentences))
+        paragraph_count = min(6, max(4, (len(sentences) + 1) // 2))
         paragraphs = [[] for _ in range(paragraph_count)]
 
         for index, sentence in enumerate(sentences):
@@ -168,9 +167,26 @@ class MessageSummarizer:
             if paragraph
         )
 
+    def deduplicate_summaries(self, summaries: List[str]) -> str:
+        """Merge intermediate summaries while removing repeated sentences."""
+        seen = set()
+        unique_sentences = []
+
+        for summary in summaries:
+            for sentence in summary.replace("\n", " ").split(". "):
+                sentence = sentence.strip()
+                normalized = " ".join(sentence.lower().split()).rstrip(".!?")
+
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    unique_sentences.append(sentence.rstrip(".") + ".")
+
+        return " ".join(unique_sentences)
+
     def summarize_messages(self, messages: List[Dict]) -> Optional[str]:
-        """Create a compact multi-paragraph daily summary."""
+        """Create a detailed, coherent multi-paragraph daily summary."""
         selected = self.select_messages(messages)
+        logging.info("Summarizing %s messages.", len(selected))
 
         transcript = self.build_weighted_transcript(selected)
 
@@ -178,21 +194,24 @@ class MessageSummarizer:
             return None
 
         chunks = self.split_into_token_chunks(transcript)
+        logging.info("Created %s token chunks.", len(chunks))
 
         intermediate_summaries = []
 
         for index, chunk in enumerate(chunks, start=1):
-            print(f"Summarizing chunk {index}/{len(chunks)}...")
+            logging.info("Summarizing chunk %s/%s", index, len(chunks))
 
             intermediate_summaries.append(
                 self.summarize_chunk(
                     chunk,
-                    max_length=130,
-                    min_length=30,
+                    max_length=180,
+                    min_length=50,
                 )
             )
 
-        combined = " ".join(intermediate_summaries)
+        logging.info("First summarization pass finished.")
+        combined = self.deduplicate_summaries(intermediate_summaries)
+        logging.info("Starting final synthesis.")
 
         # If intermediate result still too long, summarize again.
         final_chunks = self.split_into_token_chunks(
@@ -203,20 +222,20 @@ class MessageSummarizer:
         if len(final_chunks) == 1:
             final_text = self.summarize_chunk(
                 final_chunks[0],
-                max_length=220,
-                min_length=80,
+                max_length=360,
+                min_length=140,
             )
         else:
             condensed = [
                 self.summarize_chunk(
                     chunk,
-                    max_length=110,
-                    min_length=30,
+                    max_length=180,
+                    min_length=50,
                 )
                 for chunk in final_chunks
             ]
 
-            combined_condensed = " ".join(condensed)
+            combined_condensed = self.deduplicate_summaries(condensed)
 
             final_chunk = self.split_into_token_chunks(
                 combined_condensed,
@@ -225,8 +244,10 @@ class MessageSummarizer:
 
             final_text = self.summarize_chunk(
                 final_chunk,
-                max_length=220,
-                min_length=80,
+                max_length=360,
+                min_length=140,
             )
 
-        return self.format_as_paragraphs(final_text)
+        summary = self.format_as_paragraphs(final_text)
+        logging.info("Summary finished.")
+        return summary

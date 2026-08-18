@@ -122,8 +122,9 @@ class TelegramHandler:
         if not summary:
             return
 
+        summary_date = datetime.datetime.now(self.timezone).strftime("%d.%m.%Y")
         text = (
-            "📊 Daily Summary — Last 24 Hours\n\n"
+            f"📊 Summary of {summary_date}\n\n"
             f"{summary}"
         )
 
