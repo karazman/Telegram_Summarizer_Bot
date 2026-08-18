@@ -1,111 +1,478 @@
+```python
 import os
-import telebot
-import pandas as pd
+import csv
 import datetime
+import threading
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import telebot
+from apscheduler.schedulers.background import BackgroundScheduler
 from transformers import pipeline
 
-# Replace with your bot token
-TOKEN = "YOR_TELEGRAM_BOT_TOKEN"
+
+# ---------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-# File to store group messages
-LOG_FILE = "group_messages.csv"
+# Test group
+TARGET_CHAT = "@jkbofewugfh98ewgfvbwoeitfhow"
+TARGET_USERNAME = TARGET_CHAT.lstrip("@").lower()
 
-# Predefined time intervals
-TIME_INTERVALS = {
-    "12hr": 12,
-    "18hr": 18,
-    "1day": 24,
-    "2days": 48,
-    "1week": 168,
-}
+# Messages from this user receive preference if the daily chat
+# is too large to fit into the summarization pipeline.
+PRIORITY_USERNAME = "michael_schredl"
 
-# Load the Hugging Face summarization model
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+TIMEZONE = ZoneInfo("Europe/Vienna")
 
-# Command to start the bot
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    bot.reply_to(
-        message,
-        "Hello! You can summarize your messages in the group for a specific time range.\n\n"
-        "Use: `/summarize <option>`\n\n"
-        "*Available options:* \n"
-        "- `12hr` (Last 12 hours)\n"
-        "- `18hr` (Last 18 hours)\n"
-        "- `1day` (Last 24 hours)\n"
-        "- `2days` (Last 2 days)\n"
-        "- `1week` (Last 7 days)\n\n"
-        "Example: `/summarize 1day`"
+LOG_FILE = Path("group_messages.csv")
+
+# Maximum number of messages processed for one daily summary.
+# Priority-user messages are kept first if this limit is reached.
+MAX_DAILY_MESSAGES = 500
+
+bot = telebot.TeleBot(TOKEN)
+
+print("Loading BART summarization model...")
+summarizer = pipeline(
+    "summarization",
+    model="facebook/bart-large-cnn"
+)
+print("BART model loaded.")
+
+
+# ---------------------------------------------------------
+# Message storage
+# ---------------------------------------------------------
+
+csv_lock = threading.Lock()
+
+
+def save_message(message):
+    """Save a text message from the configured Telegram group."""
+
+    username = (message.from_user.username or "").lower()
+
+    now = datetime.datetime.now(TIMEZONE)
+
+    row = {
+        "chat_id": message.chat.id,
+        "user_id": message.from_user.id,
+        "username": username,
+        "message": message.text,
+        "date": now.isoformat(),
+    }
+
+    with csv_lock:
+        file_exists = LOG_FILE.exists()
+
+        with LOG_FILE.open("a", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(
+                file,
+                fieldnames=[
+                    "chat_id",
+                    "user_id",
+                    "username",
+                    "message",
+                    "date",
+                ],
+            )
+
+            if not file_exists:
+                writer.writeheader()
+
+            writer.writerow(row)
+
+
+def load_last_24_hours():
+    """Return messages from the configured group from the last 24 hours."""
+
+    if not LOG_FILE.exists():
+        return []
+
+    now = datetime.datetime.now(TIMEZONE)
+    start = now - datetime.timedelta(hours=24)
+
+    messages = []
+
+    with csv_lock:
+        with LOG_FILE.open("r", newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+
+            for row in reader:
+                try:
+                    message_date = datetime.datetime.fromisoformat(row["date"])
+
+                    if message_date.tzinfo is None:
+                        message_date = message_date.replace(tzinfo=TIMEZONE)
+
+                    if message_date >= start:
+                        messages.append(
+                            {
+                                "username": row.get("username", "").lower(),
+                                "message": row.get("message", ""),
+                                "date": message_date,
+                            }
+                        )
+
+                except (ValueError, KeyError):
+                    continue
+
+    messages.sort(key=lambda item: item["date"])
+
+    return messages
+
+
+# ---------------------------------------------------------
+# Priority handling
+# ---------------------------------------------------------
+
+def select_messages(messages):
+    """
+    Keep all messages where possible.
+
+    If there are too many messages, messages from Michael are retained
+    preferentially. They are NOT labelled specially in the final text.
+    """
+
+    if len(messages) <= MAX_DAILY_MESSAGES:
+        return messages
+
+    priority = [
+        msg
+        for msg in messages
+        if msg["username"] == PRIORITY_USERNAME
+    ]
+
+    others = [
+        msg
+        for msg in messages
+        if msg["username"] != PRIORITY_USERNAME
+    ]
+
+    remaining_slots = max(
+        0,
+        MAX_DAILY_MESSAGES - len(priority)
     )
 
-# Command to summarize messages based on selected time range
-@bot.message_handler(commands=["summarize"])
-def summarize_messages(message):
-    user_id = message.from_user.id
-    text = message.text.split()
+    # Prefer the most recent non-priority messages.
+    selected = priority + others[-remaining_slots:]
 
-    if len(text) != 2 or text[1] not in TIME_INTERVALS:
+    # Restore chronological order.
+    selected.sort(key=lambda item: item["date"])
+
+    return selected[-MAX_DAILY_MESSAGES:]
+
+
+# ---------------------------------------------------------
+# BART summarization
+# ---------------------------------------------------------
+
+def split_into_token_chunks(text, max_tokens=850):
+    """Split text into chunks that BART can process safely."""
+
+    tokenizer = summarizer.tokenizer
+
+    token_ids = tokenizer.encode(
+        text,
+        add_special_tokens=False,
+        truncation=False,
+    )
+
+    chunks = []
+
+    for start in range(0, len(token_ids), max_tokens):
+        chunk_ids = token_ids[start:start + max_tokens]
+
+        chunk_text = tokenizer.decode(
+            chunk_ids,
+            skip_special_tokens=True,
+        )
+
+        if chunk_text.strip():
+            chunks.append(chunk_text)
+
+    return chunks
+
+
+def summarize_chunk(text, max_length=130, min_length=35):
+    """Summarize one BART-sized piece of text."""
+
+    result = summarizer(
+        text,
+        max_length=max_length,
+        min_length=min_length,
+        do_sample=False,
+        truncation=True,
+    )
+
+    return result[0]["summary_text"].strip()
+
+
+def summarize_messages(messages):
+    """Create a compact multi-paragraph daily summary."""
+
+    selected = select_messages(messages)
+
+    # We intentionally don't add usernames to the BART input.
+    # This means priority affects selection but doesn't visibly
+    # single Michael out in the summary.
+    transcript = "\n".join(
+        msg["message"].strip()
+        for msg in selected
+        if msg["message"].strip()
+        and not msg["message"].startswith("/")
+    )
+
+    if not transcript.strip():
+        return None
+
+    chunks = split_into_token_chunks(transcript)
+
+    intermediate_summaries = []
+
+    for index, chunk in enumerate(chunks, start=1):
+        print(f"Summarizing chunk {index}/{len(chunks)}...")
+
+        intermediate_summaries.append(
+            summarize_chunk(
+                chunk,
+                max_length=130,
+                min_length=30,
+            )
+        )
+
+    combined = " ".join(intermediate_summaries)
+
+    # If the intermediate result is still too long,
+    # summarize it one more time.
+    final_chunks = split_into_token_chunks(
+        combined,
+        max_tokens=850
+    )
+
+    if len(final_chunks) == 1:
+        final_text = summarize_chunk(
+            final_chunks[0],
+            max_length=220,
+            min_length=80,
+        )
+    else:
+        condensed = [
+            summarize_chunk(
+                chunk,
+                max_length=110,
+                min_length=30,
+            )
+            for chunk in final_chunks
+        ]
+
+        combined_condensed = " ".join(condensed)
+
+        final_chunk = split_into_token_chunks(
+            combined_condensed,
+            max_tokens=850
+        )[0]
+
+        final_text = summarize_chunk(
+            final_chunk,
+            max_length=220,
+            min_length=80,
+        )
+
+    return format_as_paragraphs(final_text)
+
+
+def format_as_paragraphs(text):
+    """Format the generated summary into a few short paragraphs."""
+
+    text = " ".join(text.split())
+
+    sentences = []
+    current = ""
+
+    for char in text:
+        current += char
+
+        if char in ".!?":
+            sentence = current.strip()
+
+            if sentence:
+                sentences.append(sentence)
+
+            current = ""
+
+    if current.strip():
+        sentences.append(current.strip())
+
+    if len(sentences) <= 2:
+        return "\n\n".join(sentences)
+
+    # Aim for roughly 3 short paragraphs.
+    paragraph_count = min(3, len(sentences))
+    paragraphs = [[] for _ in range(paragraph_count)]
+
+    for index, sentence in enumerate(sentences):
+        target = min(
+            index * paragraph_count // len(sentences),
+            paragraph_count - 1,
+        )
+
+        paragraphs[target].append(sentence)
+
+    return "\n\n".join(
+        " ".join(paragraph)
+        for paragraph in paragraphs
+        if paragraph
+    )
+
+
+# ---------------------------------------------------------
+# Daily summary
+# ---------------------------------------------------------
+
+def create_and_send_daily_summary():
+    """Generate and send the summary to the test group."""
+
+    print("Creating daily summary...")
+
+    messages = load_last_24_hours()
+
+    if not messages:
+        print("No messages in the last 24 hours.")
+        return
+
+    try:
+        summary = summarize_messages(messages)
+
+        if not summary:
+            print("No usable messages to summarize.")
+            return
+
+        text = (
+            "📊 Daily Summary — Last 24 Hours\n\n"
+            f"{summary}"
+        )
+
+        bot.send_message(
+            TARGET_CHAT,
+            text,
+        )
+
+        print("Daily summary sent successfully.")
+
+    except Exception as error:
+        print(f"Error creating daily summary: {error}")
+
+
+# ---------------------------------------------------------
+# Telegram commands
+# ---------------------------------------------------------
+
+@bot.message_handler(commands=["start"])
+def start_command(message):
+    bot.reply_to(
+        message,
+        "🤖 Summarizer is running.\n\n"
+        "The automatic daily summary is scheduled for "
+        "20:00 Europe/Vienna.\n\n"
+        "Use /dailysummary to test it manually."
+    )
+
+
+@bot.message_handler(commands=["dailysummary"])
+def daily_summary_command(message):
+    """Manually trigger the 24-hour summary for testing."""
+
+    chat_username = (message.chat.username or "").lower()
+
+    if chat_username != TARGET_USERNAME:
         bot.reply_to(
             message,
-            "Invalid format. Use `/summarize <option>`\n\n"
-            "Example: `/summarize 1day`"
+            "This command is only enabled in the configured test group."
         )
         return
 
-    hours = TIME_INTERVALS[text[1]]
-    end_time = datetime.datetime.now()
-    start_time = end_time - datetime.timedelta(hours=hours)
+    bot.reply_to(
+        message,
+        "⏳ Creating the summary of the last 24 hours..."
+    )
 
-    try:
-        df = pd.read_csv(LOG_FILE)
-        df["date"] = pd.to_datetime(df["date"])
+    # Run BART outside Telegram's update-processing thread.
+    thread = threading.Thread(
+        target=create_and_send_daily_summary,
+        daemon=True,
+    )
 
-        # Filter messages for the user within the time range
-        user_messages = df[(df["user_id"] == user_id) & (df["date"] >= start_time)]
+    thread.start()
 
-        if user_messages.empty:
-            bot.reply_to(message, "No messages found in the selected time range.")
-            return
 
-        # Combine messages into one text block for summarization
-        messages_text = " ".join(user_messages["message"].tolist())
+# ---------------------------------------------------------
+# Log group messages
+# ---------------------------------------------------------
 
-        # Summarize messages (limit input size to avoid errors)
-        if len(messages_text) > 1024:  # Adjusting for token limits
-            messages_text = messages_text[:1024]
+@bot.message_handler(
+    func=lambda message: True,
+    content_types=["text"]
+)
+def log_message(message):
+    """Store normal text messages from the configured test group."""
 
-        summary = summarizer(messages_text, max_length=100, min_length=30, do_sample=False)[0]["summary_text"]
+    if message.chat.type not in ("group", "supergroup"):
+        return
 
-        bot.reply_to(message, f"📊 *Summary for the last {text[1]}:*\n\n_{summary}_")
+    chat_username = (message.chat.username or "").lower()
 
-    except FileNotFoundError:
-        bot.reply_to(message, "No messages found. Ensure message logging is enabled.")
+    if chat_username != TARGET_USERNAME:
+        return
 
-# Function to log messages in the group
-@bot.message_handler(func=lambda message: True, content_types=["text"])
-def log_messages(message):
-    """Logs all text messages from the group."""
-    if message.chat.type in ["group", "supergroup"]:
-        user_id = message.from_user.id
-        username = message.from_user.username or "Unknown"
-        text = message.text
-        date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Don't put bot commands into the summary source.
+    if message.text.startswith("/"):
+        return
 
-        print(f"Logging message: {username} ({user_id}) - {text}")  # Debugging
+    save_message(message)
 
-        # Save message to CSV
-        df = pd.DataFrame([[user_id, username, text, date]], columns=["user_id", "username", "message", "date"])
+    print(
+        f"Logged message from "
+        f"@{message.from_user.username or 'unknown'}"
+    )
 
-        try:
-            existing_df = pd.read_csv(LOG_FILE)
-            df = pd.concat([existing_df, df], ignore_index=True)
-        except FileNotFoundError:
-            pass
 
-        df.to_csv(LOG_FILE, index=False)
+# ---------------------------------------------------------
+# Scheduler
+# ---------------------------------------------------------
 
-# Start the bot
-print("Bot is running...")
-bot.polling(none_stop=True)
+scheduler = BackgroundScheduler(
+    timezone=TIMEZONE
+)
+
+scheduler.add_job(
+    create_and_send_daily_summary,
+    trigger="cron",
+    hour=20,
+    minute=0,
+    id="daily_summary",
+    replace_existing=True,
+)
+
+scheduler.start()
+
+print(
+    "Daily summary scheduled for "
+    "20:00 Europe/Vienna."
+)
+
+
+# ---------------------------------------------------------
+# Start bot
+# ---------------------------------------------------------
+
+print(f"Bot running for {TARGET_CHAT}...")
+
+bot.infinity_polling(
+    timeout=30,
+    long_polling_timeout=30,
+)
+```
