@@ -1,4 +1,3 @@
-```python
 import os
 import csv
 import datetime
@@ -475,4 +474,3 @@ bot.infinity_polling(
     timeout=30,
     long_polling_timeout=30,
 )
-```
