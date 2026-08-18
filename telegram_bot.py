@@ -1,3 +1,4 @@
+import os
 import telebot
 import pandas as pd
 import datetime
@@ -6,7 +7,7 @@ from transformers import pipeline
 # Replace with your bot token
 TOKEN = "YOR_TELEGRAM_BOT_TOKEN"
 
-bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
+TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 # File to store group messages
 LOG_FILE = "group_messages.csv"
