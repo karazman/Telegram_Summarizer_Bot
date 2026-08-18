@@ -10,6 +10,10 @@ env:
   AZURE_FUNCTIONAPP_NAME: test-function123
   PYTHON_VERSION: '3.11'
 
+concurrency:
+  group: deploy-test-function123-production
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -85,6 +89,22 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_049D70C857364CFEB62B98C0F20DE961 }}
 
       - name: Deploy to Azure Functions
+        id: deploy_attempt_1
+        continue-on-error: true
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          slot-name: Production
+          package: app
+          scm-do-build-during-deployment: true
+          enable-oryx-build: true
+
+      - name: Wait for Kudu deployment lock
+        if: steps.deploy_attempt_1.outcome == 'failure'
+        run: sleep 90
+
+      - name: Retry Azure Functions deployment
+        if: steps.deploy_attempt_1.outcome == 'failure'
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
