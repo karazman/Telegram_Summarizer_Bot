@@ -24,6 +24,7 @@ print("Telegram Summarizer Bot - Local Test Script")
 print("=" * 60)
 print()
 
+
 def test_health_check():
     """Test health check endpoint."""
     print("1. Testing health check endpoint...")
