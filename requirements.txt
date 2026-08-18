@@ -3,4 +3,6 @@ transformers>=4.30.0
 torch>=2.0.0
 azure-functions>=1.13.0
 azure-storage-blob>=12.17.0
+azure-storage-queue>=12.9.0
 python-dotenv>=1.0.0
+tzdata>=2024.1

@@ -1,8 +1,7 @@
-"""
-BART-based message summarization logic.
-"""
+"""BART-based message summarization logic."""
 
-from transformers import pipeline
+import logging
+import threading
 from typing import List, Dict, Optional
 
 
@@ -15,17 +14,28 @@ class MessageSummarizer:
         priority_username: str = "michael_schredl",
         priority_weight: int = 2,
     ):
-        """Initialize summarizer with BART model."""
-        print("Loading BART summarization model...")
-        self.summarizer = pipeline(
-            "summarization",
-            model="facebook/bart-large-cnn"
-        )
-        print("BART model loaded.")
-        
+        """Initialize summarizer configuration without loading the model."""
         self.max_daily_messages = max_daily_messages
         self.priority_username = priority_username.lower()
         self.priority_weight = max(1, priority_weight)
+        self._pipeline = None
+        self._pipeline_lock = threading.Lock()
+
+    def get_pipeline(self):
+        """Load the BART model lazily on the first summary request."""
+        if self._pipeline is None:
+            with self._pipeline_lock:
+                if self._pipeline is None:
+                    from transformers import pipeline
+
+                    logging.info("Loading BART summarization model.")
+                    self._pipeline = pipeline(
+                        "summarization",
+                        model="facebook/bart-large-cnn",
+                    )
+                    logging.info("BART model loaded.")
+
+        return self._pipeline
 
     def select_messages(self, messages: List[Dict]) -> List[Dict]:
         """
@@ -81,7 +91,7 @@ class MessageSummarizer:
 
     def split_into_token_chunks(self, text: str, max_tokens: int = 850) -> List[str]:
         """Split text into chunks that BART can process safely."""
-        tokenizer = self.summarizer.tokenizer
+        tokenizer = self.get_pipeline().tokenizer
 
         token_ids = tokenizer.encode(
             text,
@@ -106,7 +116,7 @@ class MessageSummarizer:
 
     def summarize_chunk(self, text: str, max_length: int = 130, min_length: int = 35) -> str:
         """Summarize one BART-sized piece of text."""
-        result = self.summarizer(
+        result = self.get_pipeline()(
             text,
             max_length=max_length,
             min_length=min_length,

@@ -4,9 +4,11 @@ Azure Blob Storage integration for message persistence.
 
 import json
 import datetime
+import logging
 from zoneinfo import ZoneInfo
-from azure.storage.blob import BlobServiceClient, BlobClient
-from typing import List, Dict, Optional
+from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient
+from typing import List, Dict
 
 
 class BlobMessageStorage:
@@ -17,16 +19,19 @@ class BlobMessageStorage:
         self.blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         self.container_name = container_name
         self.container_client = self.blob_service_client.get_container_client(container_name)
-        
-        # Ensure container exists
+
+    def ensure_container(self) -> None:
+        """Create the message container when it does not already exist."""
         try:
-            self.container_client.get_container_properties()
-        except:
             self.container_client.create_container()
+        except ResourceExistsError:
+            pass
 
     def save_message(self, message_data: Dict) -> None:
         """Save a message to blob storage."""
         try:
+            self.ensure_container()
+
             # Create blob name based on chat_id and timestamp
             chat_id = message_data.get("chat_id")
             timestamp = message_data.get("date", datetime.datetime.now().isoformat())
@@ -45,8 +50,8 @@ class BlobMessageStorage:
             
             blob_client.upload_blob(json.dumps(message_data), overwrite=True)
             
-        except Exception as e:
-            print(f"Error saving message to blob storage: {e}")
+        except Exception:
+            logging.exception("Error saving message to Blob Storage.")
             raise
 
     def load_messages_last_24_hours(
@@ -56,6 +61,8 @@ class BlobMessageStorage:
     ) -> List[Dict]:
         """Load all messages from the last 24 hours for a specific chat."""
         try:
+            self.ensure_container()
+
             now = datetime.datetime.now(timezone)
             start = now - datetime.timedelta(hours=24)
             
@@ -98,14 +105,14 @@ class BlobMessageStorage:
             messages.sort(key=lambda x: x["date"])
             return messages
             
-        except Exception as e:
-            print(f"Error loading messages from blob storage: {e}")
-            return []
+        except Exception:
+            logging.exception("Error loading messages from Blob Storage.")
+            raise
 
     def cleanup_old_messages(self, days_to_keep: int = 30) -> None:
         """Delete messages older than specified days."""
         try:
-            now = datetime.datetime.now()
+            now = datetime.datetime.now(datetime.timezone.utc)
             cutoff_date = now - datetime.timedelta(days=days_to_keep)
             cutoff_str = cutoff_date.isoformat()[:10]
             
@@ -114,8 +121,8 @@ class BlobMessageStorage:
             for blob in blobs:
                 # Extract date from blob name (YYYY/MM/DD format)
                 parts = blob.name.split("/")
-                if len(parts) >= 3:
-                    blob_date_str = f"{parts[1]}-{parts[2]}-{parts[3]}"
+                if len(parts) >= 5 and parts[0] == "messages":
+                    blob_date_str = f"{parts[2]}-{parts[3]}-{parts[4]}"
                     
                     if blob_date_str < cutoff_str:
                         blob_client = self.blob_service_client.get_blob_client(
@@ -124,5 +131,5 @@ class BlobMessageStorage:
                         )
                         blob_client.delete_blob()
                         
-        except Exception as e:
-            print(f"Error cleaning up old messages: {e}")
+        except Exception:
+            logging.exception("Error cleaning up old messages.")

@@ -1,0 +1,16 @@
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.pyc
+group_messages.csv
+local.settings.json
+test_local.py
+tests/
+setup_webhook.py
+deploy.sh
+README*.md
+QUICKSTART.md
+DEPLOYMENT_CHECKLIST.md
+PORTAL_ANLEITUNG.md

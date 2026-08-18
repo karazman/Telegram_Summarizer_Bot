@@ -3,6 +3,7 @@ Telegram webhook handler and message processing.
 """
 
 import datetime
+import logging
 from zoneinfo import ZoneInfo
 from typing import Callable, Dict, Optional
 import telebot
@@ -19,7 +20,7 @@ class TelegramHandler:
         target_chat: str = "@jkbofewugfh98ewgfvbwoeitfhow",
         target_chat_id: int = 0,
         timezone: ZoneInfo = ZoneInfo("Europe/Vienna"),
-        create_summary: Optional[Callable[[int], Optional[str]]] = None,
+        request_summary: Optional[Callable[[int], None]] = None,
     ):
         """Initialize Telegram handler."""
         self.bot = telebot.TeleBot(bot_token)
@@ -28,7 +29,7 @@ class TelegramHandler:
         self.target_chat_id = target_chat_id
         self.target_username = target_chat.lstrip("@").lower()
         self.timezone = timezone
-        self.create_summary = create_summary
+        self.request_summary = request_summary
 
         @self.bot.message_handler(commands=["dailysummary"])
         def daily_summary_command(message):
@@ -46,11 +47,7 @@ class TelegramHandler:
         if message.chat.type not in ("group", "supergroup"):
             return False
 
-        if self.target_chat_id:
-            return message.chat.id == self.target_chat_id
-
-        chat_username = (message.chat.username or "").lower()
-        return chat_username == self.target_username
+        return bool(self.target_chat_id) and message.chat.id == self.target_chat_id
 
     def _handle_daily_summary(self, message) -> None:
         """Generate and send the last 24 hours summary on demand."""
@@ -58,21 +55,17 @@ class TelegramHandler:
             return
 
         try:
-            if self.create_summary is None:
+            self.send_message(
+                message.chat.id,
+                "⏳ Creating the summary of the last 24 hours...",
+            )
+
+            if self.request_summary is None:
                 raise RuntimeError("Summary service is not configured")
 
-            summary = self.create_summary(message.chat.id)
-
-            if not summary:
-                self.send_message(
-                    message.chat.id,
-                    "Keine Nachrichten in den letzten 24 Stunden gefunden.",
-                )
-                return
-
-            self.send_summary(summary, message.chat.id)
-        except Exception as error:
-            print(f"Error handling /dailysummary: {error}")
+            self.request_summary(message.chat.id)
+        except Exception:
+            logging.exception("Error handling /dailysummary.")
             self.send_message(
                 message.chat.id,
                 "Die Zusammenfassung konnte nicht erstellt werden.",
@@ -111,11 +104,8 @@ class TelegramHandler:
 
     def process_update(self, update_data: Dict) -> None:
         """Process a Telegram update from webhook."""
-        try:
-            update = telebot.types.Update.de_json(update_data)
-            self.bot.process_new_updates([update])
-        except Exception as e:
-            print(f"Error processing Telegram update: {e}")
+        update = telebot.types.Update.de_json(update_data)
+        self.bot.process_new_updates([update])
 
     def send_message(self, chat: int | str, text: str) -> None:
         """Send a message to a Telegram chat."""

@@ -249,7 +249,7 @@ func azure functionapp publish telegram-summarizer-bot
    ```powershell
    $token = "YOUR_BOT_TOKEN"
    $url = "https://test-function123-ducjf0dfbtfnagee.westeurope-01.azurewebsites.net/api/telegram"
-   
+
    curl -X POST "https://api.telegram.org/bot$token/setWebhook" `
      -H "Content-Type: application/json" `
      -d "{`"url`": `"$url`"}"
@@ -340,22 +340,15 @@ curl -X POST https://api.telegram.org/bot<TOKEN>/getWebhookInfo
 
 Wenn du nicht weißt, was `TARGET_CHAT_ID` ist:
 
-1. Starte den Bot in der Gruppe
-2. Schreibe `/start`
-3. Der Bot antwortet - kopiere die ID von der Response
+Rufe für eine Gruppe mit öffentlichem Telegram-Namen `getChat` auf:
 
-Oder mit diesem Tool:
-```python
-import telebot
-
-bot = telebot.TeleBot("YOUR_BOT_TOKEN")
-
-@bot.message_handler(commands=['id'])
-def send_id(message):
-    bot.reply_to(message, f"Chat ID: {message.chat.id}")
-
-bot.infinity_polling()
+```powershell
+$token = "YOUR_BOT_TOKEN"
+$chat = "@jkbofewugfh98ewgfvbwoeitfhow"
+(Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/getChat?chat_id=$chat").result.id
 ```
+
+Trage die ausgegebene negative Zahl vollständig als `TARGET_CHAT_ID` ein.
 
 ---
 

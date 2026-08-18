@@ -4,13 +4,13 @@ Telegram bot that summarizes group chat messages from the last 24 hours using BA
 
 ## Features
 
-✅ Logs messages from Telegram group chat  
-✅ Summarizes messages from the last 24 hours using BART ML  
-✅ Automatic daily summary at 20:00 UTC via Timer Trigger  
-✅ Webhook-based update processing (no long-polling)  
-✅ Messages stored in Azure Blob Storage (persistent, scalable)  
-✅ Priority weighting for configured users (@Michael_Schredl)  
-✅ Serverless architecture - runs on Azure App Service Plan  
+✅ Logs messages from Telegram group chat
+✅ Summarizes messages from the last 24 hours using BART ML
+✅ Automatic daily summary at 20:00 Europe/Vienna via Timer Trigger
+✅ Webhook-based update processing (no long-polling)
+✅ Messages stored in Azure Blob Storage (persistent, scalable)
+✅ Priority weighting for configured users (@Michael_Schredl)
+✅ Serverless architecture - runs on Azure App Service Plan
 
 ## Architecture
 
@@ -21,7 +21,7 @@ Telegram bot that summarizes group chat messages from the last 24 hours using BA
    - Processes and logs incoming messages
    - Stores messages in Azure Blob Storage
 
-2. **Timer Trigger** (20:00 UTC daily)
+2. **Timer Trigger** (hourly check, execution at 20:00 Europe/Vienna)
    - Generates summary from last 24 hours
    - Sends summary to Telegram group
 
@@ -156,7 +156,7 @@ curl -X POST https://api.telegram.org/bot<TOKEN>/setWebhook \
 ### POST /api/telegram
 Receives Telegram webhook updates
 
-**Request**: Telegram update JSON  
+**Request**: Telegram update JSON
 **Response**: `{"ok": true}`
 
 ### POST /api/trigger-summary
@@ -196,7 +196,7 @@ Health check
    - Each message: timestamp, username, text, user ID
 
 2. **Summarization**
-   - Daily timer triggers at 20:00 UTC
+  - Timer checks hourly and runs at 20:00 Europe/Vienna
    - Loads all messages from last 24 hours
    - Uses BART model to generate summary
    - Priority messages (@Michael_Schredl) weighted higher if limit reached
