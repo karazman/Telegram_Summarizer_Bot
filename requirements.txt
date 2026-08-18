@@ -1,6 +1,7 @@
 pyTelegramBotAPI>=4.0.0
 transformers>=4.30.0
-torch>=2.0.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu
 azure-functions>=1.13.0
 azure-core>=1.29.0
 azure-storage-blob>=12.17.0
