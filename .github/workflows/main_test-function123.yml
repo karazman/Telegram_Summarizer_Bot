@@ -28,22 +28,34 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install \
+            --target='.python_packages/lib/site-packages' \
+            --requirement requirements.txt
 
       - name: Validate Azure Functions application
+        env:
+          PYTHONPATH: .python_packages/lib/site-packages
         run: |
           python -m py_compile function_app.py telegram_handler.py blob_storage.py summarizer.py
           python -m unittest discover -s tests -v
 
       - name: Package application
         run: |
-          zip release.zip \
+          zip -r release.zip \
             function_app.py \
             telegram_handler.py \
             blob_storage.py \
             summarizer.py \
             host.json \
-            requirements.txt
+            requirements.txt \
+            .python_packages
+
+      - name: Verify deployment package
+        run: |
+          unzip -Z1 release.zip > package-contents.txt
+          grep -Fx 'host.json' package-contents.txt
+          grep -Fx 'function_app.py' package-contents.txt
+          grep -Fx '.python_packages/lib/site-packages/azure/core/__init__.py' package-contents.txt
 
       - name: Upload deployment package
         uses: actions/upload-artifact@v4
@@ -64,11 +76,6 @@ jobs:
         with:
           name: python-app
 
-      - name: Extract deployment package
-        run: |
-          mkdir app
-          unzip release.zip -d app
-
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -81,6 +88,6 @@ jobs:
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
           slot-name: Production
-          package: app
-          scm-do-build-during-deployment: true
-          enable-oryx-build: true
+          package: release.zip
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
