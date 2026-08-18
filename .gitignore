@@ -1,0 +1,38 @@
+# Azure Functions
+.venv
+env/
+venv/
+ENV/
+*.pyc
+__pycache__/
+.Python
+*.egg-info/
+dist/
+build/
+
+# Azure Functions local
+local.settings.json
+bin/
+obj/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CSV data
+group_messages.csv
+*.csv
+
+# Logs
+*.log

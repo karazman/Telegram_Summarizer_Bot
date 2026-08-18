@@ -1,4 +1,6 @@
-pyTelegramBotAPI
-transformers
-torch
-APScheduler
+pyTelegramBotAPI>=4.0.0
+transformers>=4.30.0
+torch>=2.0.0
+azure-functions>=1.13.0
+azure-storage-blob>=12.17.0
+python-dotenv>=1.0.0
