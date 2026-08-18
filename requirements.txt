@@ -1,4 +1,4 @@
 pyTelegramBotAPI
-pandas
 transformers
 torch
+APScheduler
