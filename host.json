@@ -12,5 +12,10 @@
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
   },
+  "extensions": {
+    "queues": {
+      "messageEncoding": "none"
+    }
+  },
   "functionTimeout": "00:05:00"
 }
