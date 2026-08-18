@@ -14,10 +14,6 @@ import azure.functions as func
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from blob_storage import BlobMessageStorage
-from telegram_handler import TelegramHandler
-from summarizer import MessageSummarizer
-
 
 # Configuration
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -46,13 +42,15 @@ _telegram_handler = None
 _summary_queue = None
 
 
-def get_blob_storage() -> BlobMessageStorage:
+def get_blob_storage() -> "BlobMessageStorage":
     """Create the Blob Storage client only when a function needs it."""
     global _blob_storage
 
     if _blob_storage is None:
         with _services_lock:
             if _blob_storage is None:
+                from blob_storage import BlobMessageStorage
+
                 if not BLOB_CONNECTION_STRING:
                     raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is not configured")
                 _blob_storage = BlobMessageStorage(BLOB_CONNECTION_STRING)
@@ -60,13 +58,15 @@ def get_blob_storage() -> BlobMessageStorage:
     return _blob_storage
 
 
-def get_summarizer() -> MessageSummarizer:
+def get_summarizer() -> "MessageSummarizer":
     """Create the summarizer without loading its model during discovery."""
     global _summarizer
 
     if _summarizer is None:
         with _services_lock:
             if _summarizer is None:
+                from summarizer import MessageSummarizer
+
                 _summarizer = MessageSummarizer(
                     MAX_DAILY_MESSAGES,
                     PRIORITY_USERNAME,
@@ -142,13 +142,15 @@ def enqueue_daily_summary(chat_id: int) -> None:
     get_summary_queue().send_message(json.dumps({"chat_id": chat_id}))
 
 
-def get_telegram_handler() -> TelegramHandler:
+def get_telegram_handler() -> "TelegramHandler":
     """Create and configure Telegram handlers on first webhook use."""
     global _telegram_handler
 
     if _telegram_handler is None:
         with _services_lock:
             if _telegram_handler is None:
+                from telegram_handler import TelegramHandler
+
                 if not BOT_TOKEN:
                     raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
                 if not TARGET_CHAT_ID:
