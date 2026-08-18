@@ -1,6 +1,7 @@
 import datetime
 import json
 import unittest
+from importlib.metadata import version
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -8,6 +9,15 @@ import azure.functions as func
 
 import function_app
 from telegram_handler import TelegramHandler
+
+
+class TransformersCompatibilityTests(unittest.TestCase):
+    def test_summarization_pipeline_task_is_supported_without_model_download(self):
+        from transformers.pipelines import check_task
+
+        self.assertEqual(version("transformers"), "4.57.2")
+        normalized_task, _, _ = check_task("summarization")
+        self.assertEqual(normalized_task, "summarization")
 
 
 class FakeRequest:
