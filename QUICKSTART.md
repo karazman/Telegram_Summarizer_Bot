@@ -63,7 +63,7 @@ STORAGE_CONN=$(az storage account show-connection-string \
 ### 2. Create Function App
 ```bash
 az functionapp create \
-  --name telegram-summarizer-bot \
+  --name test-function123 \
   --resource-group telegram-bot-rg \
   --consumption-plan-location westeurope \
   --runtime python \
@@ -75,7 +75,7 @@ az functionapp create \
 ### 3. Configure Settings
 ```bash
 az functionapp config appsettings set \
-  --name telegram-summarizer-bot \
+  --name test-function123 \
   --resource-group telegram-bot-rg \
   --settings \
     TELEGRAM_BOT_TOKEN="123456:ABC-xyz" \
@@ -89,13 +89,13 @@ az functionapp config appsettings set \
 
 ### 4. Deploy Code
 ```bash
-func azure functionapp publish telegram-summarizer-bot
+func azure functionapp publish test-function123
 ```
 
 ### 5. Set Telegram Webhook
 ```bash
 # Get your webhook URL (replace with actual function app name)
-WEBHOOK="https://telegram-summarizer-bot.azurewebsites.net/api/telegram"
+WEBHOOK="https://test-function123-ducjf0dfbtfnagee.westeurope-01.azurewebsites.net/api/telegram"
 
 # Set webhook
 curl -X POST https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook \
@@ -109,15 +109,15 @@ curl https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo | jq
 ### 6. Test Deployment
 ```bash
 # Health check
-curl https://telegram-summarizer-bot.azurewebsites.net/api/health
+curl https://test-function123-ducjf0dfbtfnagee.westeurope-01.azurewebsites.net/api/health
 
 # Trigger manual summary (replace with your token)
-curl -X POST https://telegram-summarizer-bot.azurewebsites.net/api/trigger-summary \
+curl -X POST https://test-function123-ducjf0dfbtfnagee.westeurope-01.azurewebsites.net/api/trigger-summary \
   -H "Content-Type: application/json" \
   -d '{"auth_token": "your_secret_token"}'
 
 # View logs
-az functionapp log tail --name telegram-summarizer-bot --resource-group telegram-bot-rg
+az functionapp log tail --name test-function123 --resource-group telegram-bot-rg
 ```
 
 ## How It Works
@@ -166,7 +166,7 @@ az functionapp log tail --name telegram-summarizer-bot --resource-group telegram
 
 ### View Logs
 ```bash
-az functionapp log tail --name telegram-summarizer-bot --resource-group telegram-bot-rg
+az functionapp log tail --name test-function123 --resource-group telegram-bot-rg
 ```
 
 ### Change Summary Time
@@ -178,7 +178,7 @@ Edit `function_app.py`, line with `@app.schedule()`:
 ### Update a Setting
 ```bash
 az functionapp config appsettings set \
-  --name telegram-summarizer-bot \
+  --name test-function123 \
   --resource-group telegram-bot-rg \
   --settings SETTING_NAME="new_value"
 ```
