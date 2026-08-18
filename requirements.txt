@@ -1,5 +1,5 @@
 pyTelegramBotAPI>=4.0.0
-transformers>=4.30.0
+transformers==4.57.2
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.6.0+cpu
 azure-functions>=1.13.0
