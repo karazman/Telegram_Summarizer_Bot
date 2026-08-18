@@ -23,7 +23,7 @@ class TelegramHandler:
         request_summary: Optional[Callable[[int], None]] = None,
     ):
         """Initialize Telegram handler."""
-        self.bot = telebot.TeleBot(bot_token)
+        self.bot = telebot.TeleBot(bot_token, threaded=False)
         self.blob_storage = blob_storage
         self.target_chat = target_chat
         self.target_chat_id = target_chat_id
@@ -55,15 +55,17 @@ class TelegramHandler:
             return
 
         try:
+            if self.request_summary is None:
+                raise RuntimeError("Summary service is not configured")
+
+            logging.info("Enqueuing daily summary...")
+            self.request_summary(message.chat.id)
+            logging.info("Daily summary successfully enqueued")
+
             self.send_message(
                 message.chat.id,
                 "⏳ Creating the summary of the last 24 hours...",
             )
-
-            if self.request_summary is None:
-                raise RuntimeError("Summary service is not configured")
-
-            self.request_summary(message.chat.id)
         except Exception:
             logging.exception("Error handling /dailysummary.")
             self.send_message(

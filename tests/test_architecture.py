@@ -2,7 +2,7 @@ import datetime
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import azure.functions as func
 
@@ -54,6 +54,15 @@ class WebhookTests(unittest.TestCase):
 
 
 class TelegramHandlerTests(unittest.TestCase):
+    def test_telebot_runs_handlers_synchronously(self):
+        bot = Mock()
+        bot.message_handler.return_value = lambda handler: handler
+
+        with patch("telegram_handler.telebot.TeleBot", return_value=bot) as telebot:
+            TelegramHandler("token", Mock())
+
+        telebot.assert_called_once_with("token", threaded=False)
+
     def setUp(self):
         self.handler = TelegramHandler.__new__(TelegramHandler)
         self.handler.target_chat_id = -1003957784086
@@ -93,13 +102,19 @@ class TelegramHandlerTests(unittest.TestCase):
         self.assertEqual(self.handler.saved_messages, [])
 
     def test_daily_summary_sends_progress_and_summary_to_same_chat(self):
-        requested_chats = []
-        self.handler.request_summary = requested_chats.append
+        events = []
+        self.handler.request_summary = lambda chat: events.append(("enqueue", chat))
+        self.handler.send_message = lambda chat, text: events.append(("send", chat))
 
         self.handler._handle_daily_summary(self.message("/dailysummary"))
 
-        self.assertIn("Creating the summary", self.handler.sent_messages[0][1])
-        self.assertEqual(requested_chats, [-1003957784086])
+        self.assertEqual(
+            events,
+            [
+                ("enqueue", -1003957784086),
+                ("send", -1003957784086),
+            ],
+        )
 
 
 class TimerTests(unittest.TestCase):
