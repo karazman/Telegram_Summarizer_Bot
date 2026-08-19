@@ -131,7 +131,7 @@ def generate_and_send_daily_summary(
     elif notify_if_empty:
         get_telegram_handler().send_message(
             chat_id,
-            "Keine Nachrichten in den letzten 24 Stunden gefunden.",
+            "No messages were found in the last 24 hours.",
         )
 
     return summary
@@ -244,7 +244,7 @@ def daily_summary_queue(message: func.QueueMessage) -> None:
         try:
             get_telegram_handler().send_message(
                 TARGET_CHAT_ID,
-                "Die Zusammenfassung konnte nicht erstellt werden.",
+                "The summary could not be created.",
             )
         except Exception:
             logging.exception("Could not send the summary error message to Telegram.")
@@ -292,7 +292,7 @@ def daily_summary_timer(mytimer: func.TimerRequest) -> None:
         try:
             get_telegram_handler().send_message(
                 TARGET_CHAT_ID,
-                "Die automatische Zusammenfassung konnte nicht erstellt werden.",
+                "The automatic summary could not be created.",
             )
         except Exception:
             logging.exception("Could not send the timer error message to Telegram.")

@@ -70,7 +70,7 @@ class TelegramHandler:
             logging.exception("Error handling /dailysummary.")
             self.send_message(
                 message.chat.id,
-                "Die Zusammenfassung konnte nicht erstellt werden.",
+                "The summary could not be created.",
             )
 
     def _handle_message(self, message) -> None:

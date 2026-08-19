@@ -33,6 +33,98 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class SummarizerTests(unittest.TestCase):
+    def message(self, username, text, user_id=None):
+        return {
+            "user_id": user_id,
+            "username": username,
+            "message": text,
+            "date": "2026-08-18T12:00:00+02:00",
+        }
+
+    def test_repeated_messages_from_one_user_count_as_one_participant(self):
+        summarizer = MessageSummarizer()
+        messages = [
+            self.message("alice", f"Customer funds concern {index}")
+            for index in range(5)
+        ]
+
+        statistics = summarizer.discussion_statistics(messages)
+
+        self.assertEqual(statistics["source_message_count"], 5)
+        self.assertEqual(statistics["distinct_participant_count"], 1)
+
+    def test_shared_topic_counts_distinct_participants(self):
+        summarizer = MessageSummarizer()
+        messages = [
+            self.message("alice", "Customer funds need stronger protection."),
+            self.message("bob", "Protection of customer funds is essential."),
+            self.message("carol", "Customer funds protection should be audited."),
+        ]
+
+        statistics = summarizer.discussion_statistics(messages)
+
+        self.assertIn(3, statistics["topic_participant_counts"])
+
+    def test_transcript_preserves_pseudonymous_speakers_and_excludes_commands(self):
+        summarizer = MessageSummarizer(priority_username="alice")
+        messages = [
+            self.message("alice", "Protect customer funds."),
+            self.message("bob", "/dailysummary"),
+            self.message("bob", "Audit the protection process."),
+        ]
+
+        transcript = summarizer.build_weighted_transcript(messages)
+
+        self.assertIn("[participant_1]: Protect customer funds.", transcript)
+        self.assertIn("[participant_2]: Audit the protection process.", transcript)
+        self.assertNotIn("/dailysummary", transcript)
+        self.assertNotIn("[alice]", transcript)
+
+    def test_priority_weight_does_not_change_participant_statistics(self):
+        messages = [
+            self.message("alice", "Customer protection matters."),
+            self.message("bob", "Customer protection needs review."),
+        ]
+
+        normal = MessageSummarizer(priority_username="alice", priority_weight=1)
+        weighted = MessageSummarizer(priority_username="alice", priority_weight=5)
+
+        self.assertEqual(
+            normal.discussion_statistics(messages),
+            weighted.discussion_statistics(messages),
+        )
+        self.assertGreater(
+            weighted.build_weighted_transcript(messages).count("participant_1"),
+            normal.build_weighted_transcript(messages).count("participant_1"),
+        )
+
+    def test_deadlines_and_actions_are_preserved(self):
+        summarizer = MessageSummarizer()
+        records = summarizer.prepare_message_records([
+            self.message("alice", "Ich schicke den Bericht bis 20.08.2026."),
+            self.message("bob", "Können wir die Freigabe noch klären?"),
+        ])
+
+        sections = summarizer.detect_optional_sections(records)
+        result = summarizer.append_optional_sections("Recap.", sections)
+
+        self.assertIn("Upcoming deadlines:", result)
+        self.assertIn("20.08.2026", result)
+        self.assertIn("Next steps:", result)
+        self.assertIn("Open questions:", result)
+
+    def test_no_fake_deadlines_or_empty_optional_sections(self):
+        summarizer = MessageSummarizer()
+        records = summarizer.prepare_message_records([
+            self.message("alice", "Today was a detailed discussion."),
+        ])
+
+        sections = summarizer.detect_optional_sections(records)
+        result = summarizer.append_optional_sections("Recap.", sections)
+
+        self.assertEqual(sections, {})
+        self.assertEqual(result, "Recap.")
+
     def test_longer_generation_settings_and_progress_logging(self):
         summarizer = MessageSummarizer()
         messages = [
@@ -69,7 +161,8 @@ class SummarizerTests(unittest.TestCase):
             ],
         )
         log_output = "\n".join(logs.output)
-        self.assertIn("Summarizing 1 messages", log_output)
+        self.assertIn("Summarizing 1 source messages from 1 distinct participants", log_output)
+        self.assertIn("Detected 0 deadlines, 0 action items, and 0 open questions", log_output)
         self.assertIn("Created 2 token chunks", log_output)
         self.assertIn("Summarizing chunk 1/2", log_output)
         self.assertIn("Summarizing chunk 2/2", log_output)

@@ -220,6 +220,12 @@ Health check
 - Check webhook URL is configured correctly in Telegram
 
 ### Summary generation fails
+
+`facebook/bart-large-cnn` is a general summarization model, not an
+instruction-tuned moderator model. The application therefore calculates
+participant counts, topic groupings, and source-backed action signals before
+inference. This reduces message-by-message output and avoids fabricated
+consensus, but nuanced agreement or disagreement can still be imperfect.
 - Check bot has sufficient memory/timeout (Azure Premium Plan recommended)
 - Verify Azure Storage connection string is valid
 - Check for sufficient permissions on Blob Storage
